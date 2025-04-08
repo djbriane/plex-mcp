@@ -7,7 +7,7 @@ This is a Python-based MCP server that integrates with the Plex Media Server API
 ### Prerequisites
 
 - Python 3.8 or higher
-- `uv` package manager (or pip)
+- `uv` package manager
 - A Plex Media Server with API access
 
 ### Installation
@@ -18,13 +18,11 @@ This is a Python-based MCP server that integrates with the Plex Media Server API
    cd plex-mcp
    ```
 
-2. Install dependencies with `uv` or pip:
+2. Install dependencies with `uv`:
    ```
-   uv pip install mcp plexapi
-   ```
-   or with standard pip:
-   ```
-   pip install mcp plexapi
+   uv venv
+   source .venv/bin/activate
+   uv sync
    ```
 
 3. Configure environment variables for your Plex server:
@@ -33,20 +31,13 @@ This is a Python-based MCP server that integrates with the Plex Media Server API
 
 ### Finding Your Plex Token
 
-You can find your Plex token using one of these methods:
+You can find your Plex token in this way:
 
-1. **From a Web Browser**:
    - Sign in to Plex Web App
-   - Play any video
-   - Right-click and select "Get Info" or "Inspect Element"
-   - Look for a network request to the Plex server containing `X-Plex-Token=` in the URL
-
-2. **From Plex Web (alternative)**:
-   - Sign in to Plex Web App
-   - Press F12 to open Developer Tools
+   - Open Developer Tools
    - In Console tab, paste and run:
      ```javascript
-     window.localStorage.getItem('plex_oauth_token')
+     window.localStorage.getItem('myPlexAccessToken')
      ```
 
 ## Usage with Claude
@@ -54,17 +45,21 @@ You can find your Plex token using one of these methods:
 Add the following configuration to your Claude app:
 
 ```json
-"plex": {
-    "command": "uv",
-    "args": [
-        "--directory",
-        "~/plex-mcp",
-        "run",
-        "plex-mcp.py"
-    ],
-    "env": {
-        "PLEX_TOKEN": "YOUR_PLEX_TOKEN",
-        "PLEX_SERVER_URL": "YOUR_PLEX_SERVER_URL"
+{
+    "mcpServers": {
+        "plex": {
+            "command": "uv",
+            "args": [
+                "--directory",
+                "FULL_PATH_TO_PROJECT/plex-mcp",
+                "run",
+                "plex-mcp.py"
+            ],
+            "env": {
+                "PLEX_TOKEN": "YOUR_PLEX_TOKEN",
+                "PLEX_SERVER_URL": "YOUR_PLEX_SERVER_URL"
+            }
+        }
     }
 }
 ```
@@ -105,15 +100,3 @@ If you encounter connection issues, try these steps:
    ```
    python simple-direct-plex-test.py
    ```
-
-3. Check if the MCP server is running:
-   ```
-   ps aux | grep plex-mcp.py
-   ```
-
-4. Restart the MCP server if needed:
-   ```
-   python plex-mcp.py
-   ```
-
-5. Make sure your Plex server is online and accessible from your current network.
