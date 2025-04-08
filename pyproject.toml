@@ -7,4 +7,5 @@ requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28.1",
     "mcp[cli]>=1.6.0",
+    "plexapi>=4.16.1",
 ]
