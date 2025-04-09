@@ -1,9 +1,17 @@
 from typing import Any, Dict, List, Optional
 import os
 import asyncio
+import logging
 from plexapi.server import PlexServer
 from plexapi.exceptions import NotFound, Unauthorized
 from mcp.server.fastmcp import FastMCP
+
+# Initialize logging 
+logging.basicConfig(
+    level=logging.INFO,  # or DEBUG if you need more verbosity during development
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server
 mcp = FastMCP("plex")
@@ -74,12 +82,20 @@ def get_plex_client() -> PlexClient:
         _plex_client_instance = PlexClient()
     return _plex_client_instance
 
+async def get_plex_server() -> PlexServer:
+    try:
+        plex_client = get_plex_client()  # your singleton accessor
+        plex = await asyncio.to_thread(plex_client.get_server)
+        return plex
+    except Exception as e:
+        logger.exception("Failed to get Plex server instance")
+        raise e  # Propagate the exception to the caller for handling.
+
 @mcp.tool()
 async def search_movies(query: str) -> str:
     """Search for movies in your Plex library."""
     try:
-        plex_client = get_plex_client()
-        plex = await asyncio.to_thread(plex_client.get_server)
+        plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
@@ -101,8 +117,7 @@ async def search_movies(query: str) -> str:
 async def get_movie_details(movie_key: str) -> str:
     """Get detailed information about a specific movie."""
     try:
-        plex_client = get_plex_client()
-        plex = await asyncio.to_thread(plex_client.get_server)
+        plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
@@ -138,8 +153,7 @@ async def get_movie_details(movie_key: str) -> str:
 async def list_playlists() -> str:
     """List all playlists in your Plex server."""
     try:
-        plex_client = get_plex_client()
-        plex = await asyncio.to_thread(plex_client.get_server)
+        plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
@@ -161,8 +175,7 @@ async def list_playlists() -> str:
 async def get_playlist_items(playlist_key: str) -> str:
     """Get the items in a specific playlist."""
     try:
-        plex_client = get_plex_client()
-        plex = await asyncio.to_thread(plex_client.get_server)
+        plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
@@ -194,8 +207,7 @@ async def get_playlist_items(playlist_key: str) -> str:
 async def create_playlist(name: str, movie_keys: str) -> str:
     """Create a new playlist with specified movies."""
     try:
-        plex_client = get_plex_client()
-        plex = await asyncio.to_thread(plex_client.get_server)
+        plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
@@ -246,8 +258,7 @@ async def create_playlist(name: str, movie_keys: str) -> str:
 async def delete_playlist(playlist_key: str) -> str:
     """Delete a playlist from your Plex server."""
     try:
-        plex_client = get_plex_client()
-        plex = await asyncio.to_thread(plex_client.get_server)
+        plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
@@ -269,8 +280,7 @@ async def delete_playlist(playlist_key: str) -> str:
 async def add_to_playlist(playlist_key: str, movie_key: str) -> str:
     """Add a movie to an existing playlist."""
     try:
-        plex_client = get_plex_client()
-        plex = await asyncio.to_thread(plex_client.get_server)
+        plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
@@ -314,8 +324,7 @@ async def add_to_playlist(playlist_key: str, movie_key: str) -> str:
 async def recent_movies(count: int = 5) -> str:
     """Get recently added movies from your Plex library."""
     try:
-        plex_client = get_plex_client()
-        plex = await asyncio.to_thread(plex_client.get_server)
+        plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
@@ -345,8 +354,7 @@ async def recent_movies(count: int = 5) -> str:
 async def get_movie_genres(movie_key: str) -> str:
     """Get genres for a specific movie."""
     try:
-        plex_client = get_plex_client()
-        plex = await asyncio.to_thread(plex_client.get_server)
+        plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
