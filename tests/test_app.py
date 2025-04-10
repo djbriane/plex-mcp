@@ -103,7 +103,8 @@ class DummyPlexServer:
         return new_playlist
 
 # Asynchronous dummy_get_plex_server function.
-async def dummy_get_plex_server(movies=None, playlists=None) -> DummyPlexServer:
+async def dummy_get_plex_server(movies=None, playlists=None):
+    await asyncio.sleep(0)
     return DummyPlexServer(movies, playlists)
 
 # --- Fixture to Patch get_plex_server for Tests ---
@@ -116,18 +117,86 @@ def patch_get_plex_server(monkeypatch):
         )
     return _patch
 
-# --- Tests for search_movies and get_movie_details (already defined) ---
+@pytest.fixture
+def dummy_movie():
+    return DummyMovie(1, "Test Movie")
 
+# Test search_movies with a valid query
 @pytest.mark.asyncio
-async def test_search_movies_found(patch_get_plex_server):
-    patch_get_plex_server([DummyMovie(1, "Test Movie")])
+async def test_search_movies_found(patch_get_plex_server, dummy_movie):
+    patch_get_plex_server([dummy_movie])
     result = await search_movies("Test")
     assert "Test Movie" in result
     assert "more results" not in result
 
 @pytest.mark.asyncio
-async def test_get_movie_details_invalid_key(patch_get_plex_server):
-    patch_get_plex_server([DummyMovie(1, "Test Movie")])
+async def test_search_movies_multiple_results(patch_get_plex_server):
+    movies = [DummyMovie(i, f"Test Movie {i}") for i in range(1, 8)]
+    patch_get_plex_server(movies)
+    query = "Test"
+    result = await search_movies(query)
+    for i in range(1, 6):
+        assert f"Test Movie {i}" in result
+    assert "and 2 more results" in result
+
+@pytest.mark.asyncio
+async def test_search_movies_not_found(monkeypatch, patch_get_plex_server):
+    # Provide an empty list of movies.
+    patch_get_plex_server([])
+    # Override DummySection.search to always return an empty list, simulating not found.
+    monkeypatch.setattr(DummySection, "search", lambda self, filters: [])
+    result = await search_movies("NonExisting")
+    assert "No movies found" in result
+
+@pytest.mark.asyncio
+async def test_search_movies_exception(monkeypatch):
+    dummy_server = DummyPlexServer([DummyMovie(1, "Test Movie")])
+    dummy_server.library.search = MagicMock(side_effect=Exception("Search error"))
+    monkeypatch.setattr("plex_mcp.get_plex_server", lambda: asyncio.sleep(0, result=dummy_server))
+    result = await search_movies("Test")
+    assert "ERROR: Failed to search movies" in result
+    assert "Search error" in result
+
+# Test search_movies with an empty string
+@pytest.mark.asyncio
+async def test_search_movies_empty_string(patch_get_plex_server):
+    # Patch the plex server with an empty movie list to simulate no results.
+    patch_get_plex_server([])
+    result = await search_movies("")
+    # Expect the function to return the message indicating no movies found.
+    assert result == "No movies found matching ''."
+
+# Test search_movies with None as input
+@pytest.mark.asyncio
+async def test_search_movies_none_input(patch_get_plex_server, dummy_movie):
+    patch_get_plex_server([dummy_movie])
+    try:
+        result = await search_movies(None)
+    except Exception as e:
+        # If an exception is raised, capture its string representation.
+        result = str(e)
+    # The expected behavior should be defined by your application;
+    # Here we assert that an error indication is present.
+    assert "ERROR" in result
+
+# Test search_movies with a large dataset
+@pytest.mark.asyncio
+async def test_search_movies_large_dataset(patch_get_plex_server):
+
+    # Create a list of 200 dummy movies.
+    movies = [DummyMovie(i, f"Test Movie {i}") for i in range(1, 201)]
+    patch_get_plex_server(movies)
+    result = await search_movies("Test")
+    # Expect the first five to be included.
+    for i in range(1, 6):
+        assert f"Test Movie {i}" in result
+    # Check that it mentions the remaining movies (200 - 5 = 195 more).
+    assert "and 195 more results" in result
+
+# --- Tests for get_movie_details ---
+@pytest.mark.asyncio
+async def test_get_movie_details_invalid_key(patch_get_plex_server, dummy_movie):
+    patch_get_plex_server([dummy_movie])
     result = await get_movie_details("invalid")
     assert "ERROR" in result
 
@@ -142,8 +211,8 @@ async def test_list_playlists_empty(monkeypatch):
     assert "No playlists found" in result
 
 @pytest.mark.asyncio
-async def test_list_playlists_found(monkeypatch):
-    dummy_playlist = DummyPlaylist(1, "My Playlist", [DummyMovie(1, "Test Movie")])
+async def test_list_playlists_found(monkeypatch, dummy_movie):
+    dummy_playlist = DummyPlaylist(1, "My Playlist", [dummy_movie])
     class DummyPlexServerWithPlaylists(DummyPlexServer):
         def playlists(self):
             return [dummy_playlist]
@@ -154,8 +223,8 @@ async def test_list_playlists_found(monkeypatch):
 
 # --- Tests for get_playlist_items ---
 @pytest.mark.asyncio
-async def test_get_playlist_items_found(monkeypatch):
-    dummy_playlist = DummyPlaylist(2, "My Playlist", [DummyMovie(1, "Test Movie")])
+async def test_get_playlist_items_found(monkeypatch, dummy_movie):
+    dummy_playlist = DummyPlaylist(2, "My Playlist", [dummy_movie])
     class DummyPlexServerWithPlaylists(DummyPlexServer):
         def playlists(self):
             return [dummy_playlist]
@@ -175,8 +244,7 @@ async def test_get_playlist_items_not_found(monkeypatch):
 
 # --- Tests for create_playlist ---
 @pytest.mark.asyncio
-async def test_create_playlist_success(monkeypatch):
-    dummy_movie = DummyMovie(1, "Test Movie")
+async def test_create_playlist_success(monkeypatch, dummy_movie):
     class DummyPlexServerWithCreate(DummyPlexServer):
         def createPlaylist(self, name, items):
             return DummyPlaylist(1, name, items)
@@ -195,8 +263,8 @@ async def test_create_playlist_no_valid_movies(monkeypatch):
 
 # --- Tests for delete_playlist ---
 @pytest.mark.asyncio
-async def test_delete_playlist_success(monkeypatch):
-    dummy_playlist = DummyPlaylist(3, "Delete Me", [DummyMovie(1, "Test Movie")])
+async def test_delete_playlist_success(monkeypatch, dummy_movie):
+    dummy_playlist = DummyPlaylist(3, "Delete Me", [dummy_movie])
     class DummyPlexServerWithPlaylist(DummyPlexServer):
         def playlists(self):
             return [dummy_playlist]
@@ -257,7 +325,7 @@ async def test_recent_movies_not_found(monkeypatch, patch_get_plex_server):
 
 # --- Tests for get_movie_genres ---
 @pytest.mark.asyncio
-async def test_get_movie_genres_found(patch_get_plex_server, monkeypatch):
+async def test_get_movie_genres_found(monkeypatch, patch_get_plex_server):
     # Define DummyMovieWithGenres if not already defined
     class DummyMovieWithGenres(DummyMovie):
         def __init__(self, ratingKey, title, genres, **kwargs):
@@ -274,7 +342,7 @@ async def test_get_movie_genres_found(patch_get_plex_server, monkeypatch):
     assert "Thriller" in result
 
 @pytest.mark.asyncio
-async def test_get_movie_genres_not_found(patch_get_plex_server, monkeypatch):
+async def test_get_movie_genres_not_found(monkeypatch, patch_get_plex_server):
     patch_get_plex_server([])
     monkeypatch.setattr(DummySection, "search", lambda self, filters: [])
     result = await get_movie_genres("1")

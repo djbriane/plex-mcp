@@ -96,6 +96,9 @@ async def get_plex_server() -> PlexServer:
 @mcp.tool()
 async def search_movies(query: str) -> str:
     """Search for movies in your Plex library."""
+    if query is None:
+        return "ERROR: No query provided. Please provide a search term."
+
     try:
         plex = await get_plex_server()
     except Exception as e:
