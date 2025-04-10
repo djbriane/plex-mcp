@@ -1,24 +1,44 @@
+"""
+Module: plex_mcp
+
+This module provides tools for interacting with a Plex server via FastMCP.
+It includes functions to search for movies, retrieve movie details, manage playlists,
+and obtain recent movies and movie genres. Logging and asynchronous execution are used
+to handle non-blocking I/O and to provide informative error messages.
+"""
+
+# --- Import Statements ---
 from typing import Any, Dict, List, Optional
 import os
 import asyncio
 import logging
+
 from plexapi.server import PlexServer
 from plexapi.exceptions import NotFound, Unauthorized
 from mcp.server.fastmcp import FastMCP
 
-# Initialize logging 
+# --- Logging Setup ---
 logging.basicConfig(
-    level=logging.INFO,  # Use DEBUG for more detailed output during development
+    level=logging.INFO,  # Use DEBUG for more verbosity during development
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# Initialize FastMCP server
+# --- FastMCP Server Initialization ---
 mcp = FastMCP("plex")
 
-# Utility formatting functions (unchanged)
+# --- Utility Formatting Functions ---
+
 def format_movie(movie) -> str:
-    """Format a movie object into a readable string."""
+    """
+    Format a movie object into a human-readable string.
+    
+    Parameters:
+        movie: A Plex movie object.
+        
+    Returns:
+        A formatted string containing movie details.
+    """
     title = getattr(movie, 'title', 'Unknown Title')
     year = getattr(movie, 'year', 'Unknown Year')
     summary = getattr(movie, 'summary', 'No summary available')
@@ -39,7 +59,15 @@ def format_movie(movie) -> str:
     )
 
 def format_playlist(playlist) -> str:
-    """Format a playlist into a readable string."""
+    """
+    Format a playlist into a human-readable string.
+    
+    Parameters:
+        playlist: A Plex playlist object.
+        
+    Returns:
+        A formatted string containing playlist details.
+    """
     duration_mins = sum(item.duration for item in playlist.items()) // 60000 if playlist.items() else 0
     updated = (
         playlist.updatedAt.strftime('%Y-%m-%d %H:%M:%S')
@@ -52,8 +80,13 @@ def format_playlist(playlist) -> str:
         f"Last Updated: {updated}\n"
     )
 
-# Encapsulate Plex connection logic in a dedicated class
+# --- Plex Client Class ---
+
 class PlexClient:
+    """
+    Encapsulate the Plex connection logic.
+    This class handles initialization and caching of the PlexServer instance.
+    """
     def __init__(self, server_url: str = None, token: str = None):
         self.server_url = server_url or os.environ.get("PLEX_SERVER_URL", "").rstrip("/")
         self.token = token or os.environ.get("PLEX_TOKEN")
@@ -64,7 +97,15 @@ class PlexClient:
         self._server = None
 
     def get_server(self) -> PlexServer:
-        """Returns a cached PlexServer instance or initializes one if needed."""
+        """
+        Return a cached PlexServer instance or initialize one if not already available.
+        
+        Returns:
+            A connected PlexServer instance.
+        
+        Raises:
+            Exception: If connection initialization fails.
+        """
         if self._server is None:
             try:
                 self._server = PlexServer(self.server_url, self.token)
@@ -74,28 +115,53 @@ class PlexClient:
                 raise Exception(f"Error initializing Plex server: {exc}")
         return self._server
 
-# Global singleton instance for PlexClient
+# --- Global Singleton and Access Functions ---
+
 _plex_client_instance: PlexClient = None
 
 def get_plex_client() -> PlexClient:
-    """Return the singleton PlexClient instance, initializing it if necessary."""
+    """
+    Return the singleton PlexClient instance, initializing it if necessary.
+    
+    Returns:
+        A PlexClient instance.
+    """
     global _plex_client_instance
     if _plex_client_instance is None:
         _plex_client_instance = PlexClient()
     return _plex_client_instance
 
 async def get_plex_server() -> PlexServer:
+    """
+    Asynchronously get a PlexServer instance via the singleton PlexClient.
+    
+    Returns:
+        A PlexServer instance.
+        
+    Raises:
+        Exception: When the Plex server connection fails.
+    """
     try:
-        plex_client = get_plex_client()  # your singleton accessor
+        plex_client = get_plex_client()  # Singleton accessor
         plex = await asyncio.to_thread(plex_client.get_server)
         return plex
     except Exception as e:
         logger.exception("Failed to get Plex server instance")
-        raise e  # Propagate the exception to the caller for handling.
+        raise e
+
+# --- Tool Methods ---
 
 @mcp.tool()
 async def search_movies(query: str) -> str:
-    """Search for movies in your Plex library."""
+    """
+    Search for movies in the Plex library.
+    
+    Parameters:
+        query: The search term to look up movies.
+        
+    Returns:
+        A formatted string of search results or an error message.
+    """
     if query is None:
         return "ERROR: No query provided. Please provide a search term."
 
@@ -120,7 +186,15 @@ async def search_movies(query: str) -> str:
 
 @mcp.tool()
 async def get_movie_details(movie_key: str) -> str:
-    """Get detailed information about a specific movie."""
+    """
+    Get detailed information about a specific movie.
+    
+    Parameters:
+        movie_key: The key identifying the movie.
+        
+    Returns:
+        A formatted string with movie details or an error message.
+    """
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -156,7 +230,12 @@ async def get_movie_details(movie_key: str) -> str:
 
 @mcp.tool()
 async def list_playlists() -> str:
-    """List all playlists in your Plex server."""
+    """
+    List all playlists in the Plex server.
+    
+    Returns:
+        A formatted string of playlists or an error message.
+    """
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -178,7 +257,15 @@ async def list_playlists() -> str:
 
 @mcp.tool()
 async def get_playlist_items(playlist_key: str) -> str:
-    """Get the items in a specific playlist."""
+    """
+    Get the items in a specific playlist.
+    
+    Parameters:
+        playlist_key: The key of the playlist to retrieve items from.
+        
+    Returns:
+        A formatted string of playlist items or an error message.
+    """
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -210,7 +297,16 @@ async def get_playlist_items(playlist_key: str) -> str:
 
 @mcp.tool()
 async def create_playlist(name: str, movie_keys: str) -> str:
-    """Create a new playlist with specified movies."""
+    """
+    Create a new playlist with specified movies.
+    
+    Parameters:
+        name: The desired name for the new playlist.
+        movie_keys: A comma-separated string of movie keys to include.
+        
+    Returns:
+        A success message with playlist details or an error message.
+    """
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -262,7 +358,15 @@ async def create_playlist(name: str, movie_keys: str) -> str:
 
 @mcp.tool()
 async def delete_playlist(playlist_key: str) -> str:
-    """Delete a playlist from your Plex server."""
+    """
+    Delete a playlist from the Plex server.
+    
+    Parameters:
+        playlist_key: The key of the playlist to delete.
+        
+    Returns:
+        A success message if deletion is successful, or an error message.
+    """
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -285,7 +389,16 @@ async def delete_playlist(playlist_key: str) -> str:
 
 @mcp.tool()
 async def add_to_playlist(playlist_key: str, movie_key: str) -> str:
-    """Add a movie to an existing playlist."""
+    """
+    Add a movie to an existing playlist.
+    
+    Parameters:
+        playlist_key: The key of the playlist.
+        movie_key: The key of the movie to add.
+        
+    Returns:
+        A success message if the movie is added, or an error message.
+    """
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -330,7 +443,15 @@ async def add_to_playlist(playlist_key: str, movie_key: str) -> str:
 
 @mcp.tool()
 async def recent_movies(count: int = 5) -> str:
-    """Get recently added movies from your Plex library."""
+    """
+    Get recently added movies from the Plex library.
+    
+    Parameters:
+        count: The maximum number of recent movies to return.
+        
+    Returns:
+        A formatted string of recent movies or an error message.
+    """
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -360,7 +481,15 @@ async def recent_movies(count: int = 5) -> str:
 
 @mcp.tool()
 async def get_movie_genres(movie_key: str) -> str:
-    """Get genres for a specific movie."""
+    """
+    Get genres for a specific movie.
+    
+    Parameters:
+        movie_key: The key of the movie.
+        
+    Returns:
+        A formatted string of movie genres or an error message.
+    """
     try:
         plex = await get_plex_server()
     except Exception as e:
@@ -395,6 +524,8 @@ async def get_movie_genres(movie_key: str) -> str:
     except Exception as e:
         logger.exception("Failed to fetch genres for movie with key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie genres. {str(e)}"
-    
+
+# --- Main Execution ---
 if __name__ == "__main__":
     mcp.run(transport='stdio')
+    

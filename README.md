@@ -100,3 +100,20 @@ If you encounter connection issues, try these steps:
    ```
    python simple-direct-plex-test.py
    ```
+
+## Code Style and Conventions
+
+- **Module Structure:**  
+  Use clear section headers for imports, logging setup, utility functions, class definitions, global helpers, tool methods, and main execution (guarded by `if __name__ == "__main__":`).
+
+- **Naming:**  
+  Use CamelCase for classes and lower_snake_case for functions, variables, and fixtures. In tests, list built-in fixtures (e.g. `monkeypatch`) before custom ones.
+
+- **Documentation & Comments:**  
+  Include a concise docstring for every module, class, and function, with in-line comments for complex logic.
+
+- **Error Handling & Logging:**  
+  Use Python’s `logging` module with consistent error messages (prefix “ERROR:”) and explicit exception handling.
+
+- **Asynchronous Patterns:**  
+  Define I/O-bound functions as async and use `asyncio.to_thread()` to handle blocking operations.
