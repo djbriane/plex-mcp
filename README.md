@@ -80,26 +80,35 @@ The Plex MCP server exposes these commands:
 | `add_to_playlist` | Add a movie to an existing playlist | `/playlists/{playlistID}/items` |
 | `recent_movies` | Get recently added movies from your library | `/library/recentlyAdded` |
 
-## Testing
+## Running Tests
 
-The repository includes a test script to verify connectivity and functionality:
+This project includes both unit tests and integration tests. Use the following instructions to run each type of test:
 
-- `simple-direct-plex-test.py` - A direct PlexAPI test that doesn't use the MCP server
+### Unit Tests
 
-## Troubleshooting
+Unit tests use dummy data to verify the functionality of each module without requiring a live Plex server.
 
-If you encounter connection issues, try these steps:
+To run all unit tests:
+```bash
+uv run pytest
+```
 
-1. Verify your environment variables are set correctly:
-   ```
-   echo $PLEX_SERVER_URL
-   echo $PLEX_TOKEN
-   ```
+### Integration Tests
 
-2. Test direct connectivity to your Plex server:
-   ```
-   python simple-direct-plex-test.py
-   ```
+Integration tests run against a live Plex server using environment variables defined in a .env file. First, create a .env file in your project root with your Plex configuration:
+
+```env
+PLEX_SERVER_URL=https://your-plex-server-url:32400
+PLEX_TOKEN=yourPlexTokenHere
+```
+
+Integration tests are marked with the integration marker. To run only the integration tests:
+
+```bash
+uv run pytest -m integration
+```
+
+If you are experiencing connection issues to your Plex server try running the integration tests to help troubleshoot.
 
 ## Code Style and Conventions
 
