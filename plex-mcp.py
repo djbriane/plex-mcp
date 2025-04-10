@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 
 # Initialize logging 
 logging.basicConfig(
-    level=logging.INFO,  # or DEBUG if you need more verbosity during development
+    level=logging.INFO,  # Use DEBUG for more detailed output during development
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
@@ -68,7 +68,9 @@ class PlexClient:
         if self._server is None:
             try:
                 self._server = PlexServer(self.server_url, self.token)
+                logger.info("Successfully initialized PlexServer.")
             except Exception as exc:
+                logger.exception("Error initializing Plex server: %s", exc)
                 raise Exception(f"Error initializing Plex server: {exc}")
         return self._server
 
@@ -110,8 +112,8 @@ async def search_movies(query: str) -> str:
             formatted_results.append(f"\n... and {len(movies) - 5} more results.")
         return "\n---\n".join(formatted_results)
     except Exception as e:
+        logger.exception("Failed to search movies with query '%s'", query)
         return f"ERROR: Failed to search movies. {str(e)}"
-
 
 @mcp.tool()
 async def get_movie_details(movie_key: str) -> str:
@@ -146,8 +148,8 @@ async def get_movie_details(movie_key: str) -> str:
     except NotFound:
         return f"ERROR: Movie with key {movie_key} not found."
     except Exception as e:
+        logger.exception("Failed to fetch movie details for key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie details. {str(e)}"
-
 
 @mcp.tool()
 async def list_playlists() -> str:
@@ -168,8 +170,8 @@ async def list_playlists() -> str:
             )
         return "\n---\n".join(formatted_playlists)
     except Exception as e:
+        logger.exception("Failed to fetch playlists")
         return f"ERROR: Failed to fetch playlists. {str(e)}"
-
 
 @mcp.tool()
 async def get_playlist_items(playlist_key: str) -> str:
@@ -200,8 +202,8 @@ async def get_playlist_items(playlist_key: str) -> str:
     except NotFound:
         return f"ERROR: Playlist with key {playlist_key} not found."
     except Exception as e:
+        logger.exception("Failed to fetch items for playlist key '%s'", playlist_key)
         return f"ERROR: Failed to fetch playlist items. {str(e)}"
-
 
 @mcp.tool()
 async def create_playlist(name: str, movie_keys: str) -> str:
@@ -216,9 +218,9 @@ async def create_playlist(name: str, movie_keys: str) -> str:
         if not movie_key_list:
             return "ERROR: No valid movie keys provided."
 
-        print(f"Creating playlist '{name}' with movie keys: {movie_keys}")
+        logger.info("Creating playlist '%s' with movie keys: %s", name, movie_keys)
         all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
-        print(f"Found {len(all_movies)} total movies in library")
+        logger.info("Found %d total movies in library", len(all_movies))
         movie_map = {movie.ratingKey: movie for movie in all_movies}
         movies = []
         not_found_keys = []
@@ -226,10 +228,10 @@ async def create_playlist(name: str, movie_keys: str) -> str:
         for key in movie_key_list:
             if key in movie_map:
                 movies.append(movie_map[key])
-                print(f"Found movie: {movie_map[key].title} (Key: {key})")
+                logger.info("Found movie: %s (Key: %d)", movie_map[key].title, key)
             else:
                 not_found_keys.append(key)
-                print(f"Could not find movie with key: {key}")
+                logger.warning("Could not find movie with key: %d", key)
 
         if not_found_keys:
             return f"ERROR: Some movie keys were not found: {', '.join(str(k) for k in not_found_keys)}"
@@ -241,18 +243,19 @@ async def create_playlist(name: str, movie_keys: str) -> str:
                 asyncio.to_thread(lambda: plex.createPlaylist(name, items=movies))
             )
             playlist = await asyncio.wait_for(playlist_future, timeout=15.0)
-            print(f"Playlist created successfully: {playlist.title}")
+            logger.info("Playlist created successfully: %s", playlist.title)
             return f"Successfully created playlist '{name}' with {len(movies)} movie(s).\nPlaylist Key: {playlist.ratingKey}"
         except asyncio.TimeoutError:
+            logger.warning("Playlist creation is taking longer than expected for '%s'", name)
             return ("PENDING: Playlist creation is taking longer than expected. "
                     "The operation might still complete in the background. "
                     "Please check your Plex server to confirm.")
     except ValueError as e:
+        logger.error("Invalid input format for movie keys: %s", e)
         return f"ERROR: Invalid input format. Please check movie keys are valid numbers. {str(e)}"
     except Exception as e:
-        print(f"Error creating playlist: {str(e)}")
+        logger.exception("Error creating playlist")
         return f"ERROR: Failed to create playlist. {str(e)}"
-
 
 @mcp.tool()
 async def delete_playlist(playlist_key: str) -> str:
@@ -269,12 +272,13 @@ async def delete_playlist(playlist_key: str) -> str:
         if not playlist:
             return f"No playlist found with key {playlist_key}."
         await asyncio.to_thread(playlist.delete)
+        logger.info("Playlist '%s' with key %s successfully deleted.", playlist.title, playlist_key)
         return f"Successfully deleted playlist '{playlist.title}' with key {playlist_key}."
     except NotFound:
         return f"ERROR: Playlist with key {playlist_key} not found."
     except Exception as e:
+        logger.exception("Failed to delete playlist with key '%s'", playlist_key)
         return f"ERROR: Failed to delete playlist. {str(e)}"
-
 
 @mcp.tool()
 async def add_to_playlist(playlist_key: str, movie_key: str) -> str:
@@ -313,12 +317,13 @@ async def add_to_playlist(playlist_key: str, movie_key: str) -> str:
             return f"No movie found with key {movie_key}."
 
         await asyncio.to_thread(lambda p=playlist, m=movie: p.addItems([m]))
+        logger.info("Added movie '%s' to playlist '%s'", movie.title, playlist.title)
         return f"Successfully added '{movie.title}' to playlist '{playlist.title}'."
     except NotFound as e:
         return f"ERROR: Item not found. {str(e)}"
     except Exception as e:
+        logger.exception("Failed to add movie to playlist")
         return f"ERROR: Failed to add movie to playlist. {str(e)}"
-
 
 @mcp.tool()
 async def recent_movies(count: int = 5) -> str:
@@ -347,8 +352,8 @@ async def recent_movies(count: int = 5) -> str:
             )
         return "\n---\n".join(formatted_movies)
     except Exception as e:
+        logger.exception("Failed to fetch recent movies")
         return f"ERROR: Failed to fetch recent movies. {str(e)}"
-
 
 @mcp.tool()
 async def get_movie_genres(movie_key: str) -> str:
@@ -385,6 +390,7 @@ async def get_movie_genres(movie_key: str) -> str:
     except NotFound:
         return f"ERROR: Movie with key {movie_key} not found."
     except Exception as e:
+        logger.exception("Failed to fetch genres for movie with key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie genres. {str(e)}"
     
 if __name__ == "__main__":
