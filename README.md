@@ -1,5 +1,7 @@
 # Plex MCP Server
 
+[![smithery badge](https://smithery.ai/badge/@djbriane/plex-mcp)](https://smithery.ai/server/@djbriane/plex-mcp)
+
 This is a Python-based MCP server that integrates with the Plex Media Server API to search for movies and manage playlists. It uses the PlexAPI library for seamless interaction with your Plex server.
 
 ## Setup
@@ -12,6 +14,15 @@ This is a Python-based MCP server that integrates with the Plex Media Server API
 
 ### Installation
 
+### Installing via Smithery
+
+To install Plex Media Server Integration for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@djbriane/plex-mcp):
+
+```bash
+npx -y @smithery/cli install @djbriane/plex-mcp --client claude
+```
+
+### Installing Manually
 1. Clone this repository:
    ```
    git clone <repository-url>
@@ -126,3 +137,4 @@ If you are experiencing connection issues to your Plex server try running the in
 
 - **Asynchronous Patterns:**  
   Define I/O-bound functions as async and use `asyncio.to_thread()` to handle blocking operations.
+
