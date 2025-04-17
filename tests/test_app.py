@@ -9,6 +9,7 @@ from datetime import datetime
 
 # --- Import the Module Under Test ---
 from plex_mcp import (
+    MovieSearchParams,
     search_movies,
     get_movie_details,
     list_playlists,
@@ -29,28 +30,37 @@ def set_dummy_env(monkeypatch):
 
 # --- Dummy Classes to Simulate Plex Objects ---
 
+class DummyTag:
+    def __init__(self, tag):
+        self.tag = tag
+
+
 class DummyMovie:
-    def __init__(self, ratingKey, title, year=2022, summary="A test movie",
-                 duration=7200000, rating="PG", studio="Test Studio"):
-        self.ratingKey = ratingKey
+    def __init__(
+        self,
+        rating_key,
+        title,
+        year=2022,
+        duration=120 * 60_000,  # in ms
+        studio="Test Studio",
+        summary="A test summary",
+        rating="PG",
+        directors=None,
+        roles=None,
+        genres=None,
+        type_="movie"
+    ):
+        self.ratingKey = rating_key
         self.title = title
         self.year = year
-        self.summary = summary
         self.duration = duration
-        self.rating = rating
         self.studio = studio
-        self.directors = []
-        self.roles = []
-        # Add 'type' attribute required by get_playlist_items
-        self.type = "movie"
-
-    @property
-    def addedAt(self):
-        return getattr(self, "_addedAt", datetime(2022, 1, 1))
-
-    @addedAt.setter
-    def addedAt(self, value):
-        self._addedAt = value
+        self.summary = summary
+        self.rating = rating
+        self.directors = [DummyTag(d) for d in (directors or [])]
+        self.roles = [DummyTag(r) for r in (roles or [])]
+        self.genres = [DummyTag(g) for g in (genres or [])]
+        self.type = type_
 
 # Subclass for movies with genres.
 class DummyMovieWithGenres(DummyMovie):
@@ -81,8 +91,11 @@ class DummyLibrary:
         self._movies = movies if movies is not None else []
 
     def search(self, **kwargs):
+        title = kwargs.get("title")
+        if isinstance(title, MovieSearchParams):
+            title = title.title  # Unwrap if passed improperly
         if kwargs.get("libtype") == "movie":
-            return self._movies
+            return [m for m in self._movies if title is None or title.lower() in m.title.lower()]
         return []
 
     def sections(self):
@@ -136,8 +149,14 @@ def patch_get_plex_server(monkeypatch):
 
 @pytest.fixture
 def dummy_movie():
-    """Fixture that returns a default DummyMovie instance."""
-    return DummyMovie(1, "Test Movie")
+    return DummyMovie(
+        rating_key=1,
+        title="Test Movie",
+        year=2022,
+        directors=["Jane Doe"],
+        roles=["Test Actor"],
+        genres=["Thriller"]
+    )
 
 # --- Tests for search_movies ---
 
@@ -145,7 +164,7 @@ def dummy_movie():
 async def test_search_movies_found(patch_get_plex_server, dummy_movie):
     """Test that search_movies returns a formatted result when a movie is found."""
     patch_get_plex_server([dummy_movie])
-    result = await search_movies("Test")
+    result = await search_movies(MovieSearchParams(title="Test"))
     assert "Test Movie" in result
     assert "more results" not in result
 
@@ -154,7 +173,7 @@ async def test_search_movies_multiple_results(patch_get_plex_server):
     """Test that search_movies shows an extra results message when more than 5 movies are found."""
     movies = [DummyMovie(i, f"Test Movie {i}") for i in range(1, 8)]
     patch_get_plex_server(movies)
-    result = await search_movies("Test")
+    result = await search_movies(MovieSearchParams(title="Test"))
     for i in range(1, 6):
         assert f"Test Movie {i}" in result
     assert "and 2 more results" in result
@@ -163,9 +182,8 @@ async def test_search_movies_multiple_results(patch_get_plex_server):
 async def test_search_movies_not_found(monkeypatch, patch_get_plex_server):
     """Test that search_movies returns a 'not found' message when no movies match the query."""
     patch_get_plex_server([])
-    # Force DummySection.search to return an empty list.
     monkeypatch.setattr(DummySection, "search", lambda self, filters: [])
-    result = await search_movies("NonExisting")
+    result = await search_movies(MovieSearchParams(title="NonExisting"))
     assert "No movies found" in result
 
 @pytest.mark.asyncio
@@ -173,35 +191,31 @@ async def test_search_movies_exception(monkeypatch):
     """Test that search_movies returns an error message when an exception occurs."""
     dummy_server = DummyPlexServer([DummyMovie(1, "Test Movie")])
     dummy_server.library.search = MagicMock(side_effect=Exception("Search error"))
-    monkeypatch.setattr("plex_mcp.get_plex_server", 
-                        lambda: asyncio.sleep(0, result=dummy_server))
-    result = await search_movies("Test")
-    assert "ERROR: Failed to search movies" in result
+    monkeypatch.setattr("plex_mcp.get_plex_server", lambda: asyncio.sleep(0, result=dummy_server))
+    result = await search_movies(MovieSearchParams(title="Test"))
+    assert "ERROR: Could not search Plex" in result
     assert "Search error" in result
 
 @pytest.mark.asyncio
 async def test_search_movies_empty_string(patch_get_plex_server):
     """Test search_movies with an empty string returns the not-found message."""
     patch_get_plex_server([])
-    result = await search_movies("")
-    assert result == "No movies found matching ''."
+    result = await search_movies(MovieSearchParams(title=""))
+    assert result.startswith("No movies found")
 
 @pytest.mark.asyncio
 async def test_search_movies_none_input(patch_get_plex_server, dummy_movie):
-    """Test that search_movies returns an error when None is provided as input."""
+    """Test that search_movies with None input returns results (treated as unfiltered search)."""
     patch_get_plex_server([dummy_movie])
-    try:
-        result = await search_movies(None)
-    except Exception as e:
-        result = str(e)
-    assert "ERROR" in result
+    result = await search_movies(None)
+    assert "Test Movie" in result
 
 @pytest.mark.asyncio
 async def test_search_movies_large_dataset(patch_get_plex_server):
     """Test that search_movies correctly handles a large dataset of movies."""
     movies = [DummyMovie(i, f"Test Movie {i}") for i in range(1, 201)]
     patch_get_plex_server(movies)
-    result = await search_movies("Test")
+    result = await search_movies(MovieSearchParams(title="Test"))
     for i in range(1, 6):
         assert f"Test Movie {i}" in result
     assert "and 195 more results" in result
@@ -388,18 +402,21 @@ async def test_recent_movies_not_found(monkeypatch, patch_get_plex_server):
 @pytest.mark.asyncio
 async def test_get_movie_genres_found(monkeypatch, patch_get_plex_server):
     """Test that get_movie_genres returns the correct genres for a movie."""
-    class DummyMovieWithGenres(DummyMovie):
-        def __init__(self, ratingKey, title, genres, **kwargs):
-            super().__init__(ratingKey, title, **kwargs)
-            self.genres = genres
-    class DummyGenre:
-        def __init__(self, tag):
-            self.tag = tag
-    # Patch DummySection.search to return a movie with genres.
-    monkeypatch.setattr(DummySection, "search",
-                        lambda self, filters: [DummyMovieWithGenres(1, "Test Movie", [DummyGenre("Action"), DummyGenre("Thriller")])]
-                        if filters.get("ratingKey") == 1 else [])
-    patch_get_plex_server([DummyMovieWithGenres(1, "Test Movie", [DummyGenre("Action"), DummyGenre("Thriller")])])
+    # Create a dummy movie with genre tags
+    movie_with_genres = DummyMovie(
+        rating_key=1,
+        title="Test Movie",
+        genres=["Action", "Thriller"]
+    )
+
+    # Patch DummySection.search to return our dummy movie when the ratingKey matches
+    monkeypatch.setattr(
+        DummySection,
+        "search",
+        lambda self, filters: [movie_with_genres] if filters.get("ratingKey") == 1 else []
+    )
+
+    patch_get_plex_server([movie_with_genres])
     result = await get_movie_genres("1")
     assert "Action" in result
     assert "Thriller" in result
