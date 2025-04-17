@@ -9,6 +9,7 @@ to handle non-blocking I/O and to provide informative error messages.
 
 # --- Import Statements ---
 from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, asdict
 import os
 import asyncio
 import logging
@@ -115,6 +116,61 @@ class PlexClient:
                 raise Exception(f"Error initializing Plex server: {exc}")
         return self._server
 
+# --- Data Classes ---
+
+@dataclass
+class MovieSearchParams:
+    title:        Optional[str]  = None
+    year:         Optional[int]  = None
+    director:     Optional[str]  = None
+    studio:       Optional[str]  = None
+    genre:        Optional[str]  = None
+    actor:        Optional[str]  = None
+    rating:       Optional[str]  = None
+    country:      Optional[str]  = None
+    language:     Optional[str]  = None
+    watched:      Optional[bool] = None   # True=only watched, False=only unwatched
+    min_duration: Optional[int]  = None   # in minutes
+    max_duration: Optional[int]  = None   # in minutes
+
+    def to_filters(self) -> Dict[str, Any]:
+        FIELD_MAP = {
+            "title":        "title",
+            "year":         "year",
+            "director":     "director",
+            "studio":       "studio",
+            "genre":        "genre",
+            "actor":        "actor",
+            "rating":       "rating",
+            "country":      "country",
+            "language":     "language",
+            "watched":      "unwatched",
+            "min_duration": "minDuration",
+            "max_duration": "maxDuration",
+        }
+
+        filters: Dict[str, Any] = {"libtype": "movie"}
+
+        for field_name, plex_arg in FIELD_MAP.items():
+            value = getattr(self, field_name)
+            if value is None:
+                continue
+
+            if field_name == "watched":
+                # invert for Plex 'unwatched' flag
+                filters["unwatched"] = not value
+                continue
+
+            if field_name in ("min_duration", "max_duration"):
+                # convert minutes to milliseconds
+                filters[plex_arg] = value * 60_000
+                continue
+
+            filters[plex_arg] = value
+
+        return filters
+
+
 # --- Global Singleton and Access Functions ---
 
 _plex_client_instance: PlexClient = None
@@ -152,37 +208,67 @@ async def get_plex_server() -> PlexServer:
 # --- Tool Methods ---
 
 @mcp.tool()
-async def search_movies(query: str) -> str:
+async def search_movies(
+    title:        Optional[str]  = None,
+    year:         Optional[int]  = None,
+    director:     Optional[str]  = None,
+    studio:       Optional[str]  = None,
+    genre:        Optional[str]  = None,
+    actor:        Optional[str]  = None,
+    rating:       Optional[str]  = None,
+    country:      Optional[str]  = None,
+    language:     Optional[str]  = None,
+    watched:      Optional[bool] = None,
+    min_duration: Optional[int]  = None,
+    max_duration: Optional[int]  = None,
+) -> str:
     """
-    Search for movies in the Plex library.
+    Search for movies in your Plex library using optional filters.
     
     Parameters:
-        query: The search term to look up movies.
+        title: Optional title or substring to match.
+        year: Optional release year to filter by.
+        director: Optional director name to filter by.
+        studio: Optional studio name to filter by.
+        genre: Optional genre tag to filter by.
+        actor: Optional actor name to filter by.
+        rating: Optional rating (e.g., "PG-13") to filter by.
+        country: Optional country of origin to filter by.
+        language: Optional audio or subtitle language to filter by.
+        watched: Optional boolean; True returns only watched movies, False only unwatched.
+        min_duration: Optional minimum duration in minutes.
+        max_duration: Optional maximum duration in minutes.
         
     Returns:
-        A formatted string of search results or an error message.
+        A formatted string of up to 5 matching movies (with a count of any additional results),
+        or an error message if the search fails or no movies are found.
     """
-    if query is None:
-        return "ERROR: No query provided. Please provide a search term."
+    params = MovieSearchParams(
+        title, year, director, studio,
+        genre, actor, rating, country,
+        language, watched, min_duration, max_duration
+    )
+    filters = params.to_filters()
+    logger.info("Searching Plex with filters: %r", filters)
 
     try:
         plex = await get_plex_server()
+        movies = await asyncio.to_thread(plex.library.search, **filters)
     except Exception as e:
-        return f"ERROR: Could not connect to Plex server. {str(e)}"
+        logger.exception("search_movies failed connecting to Plex")
+        return f"ERROR: Could not search Plex. {e}"
 
-    try:
-        movies = await asyncio.to_thread(plex.library.search, title=query, libtype="movie")
-        if not movies:
-            return f"No movies found matching '{query}'."
-        formatted_results = []
-        for i, movie in enumerate(movies[:5], 1):  # Limit to 5 results
-            formatted_results.append(f"Result #{i}:\nKey: {movie.ratingKey}\n{format_movie(movie)}")
-        if len(movies) > 5:
-            formatted_results.append(f"\n... and {len(movies) - 5} more results.")
-        return "\n---\n".join(formatted_results)
-    except Exception as e:
-        logger.exception("Failed to search movies with query '%s'", query)
-        return f"ERROR: Failed to search movies. {str(e)}"
+    if not movies:
+        return f"No movies found matching filters {filters!r}."
+
+    results: List[str] = []
+    for i, m in enumerate(movies[:5], start=1):
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")
+
+    if len(movies) > 5:
+        results.append(f"\n... and {len(movies)-5} more results.")
+
+    return "\n---\n".join(results)
 
 @mcp.tool()
 async def get_movie_details(movie_key: str) -> str:
