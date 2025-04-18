@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import functions from the main module.
-from plex_mcp import (
+from plex_mcp.plex_mcp import (
     get_plex_server,
     search_movies,
     list_playlists,
@@ -95,7 +95,7 @@ async def test_integration_search_movies_multiple_filters():
     result = await search_movies(year=2020, genre="Drama", min_duration=100)
     assert isinstance(result, str)
     assert ("Result #" in result) or ("No movies found" in result)
-    
+
 @pytest.mark.asyncio
 async def test_integration_list_playlists():
     """

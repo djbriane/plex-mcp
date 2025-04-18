@@ -8,7 +8,7 @@ from datetime import datetime
 # large datasets, and error handling.
 
 # --- Import the Module Under Test ---
-from plex_mcp import (
+from plex_mcp.plex_mcp import (
     MovieSearchParams,
     search_movies,
     get_movie_details,
@@ -19,7 +19,6 @@ from plex_mcp import (
     add_to_playlist,
     recent_movies,
     get_movie_genres,
-    get_plex_server,
 )
 
 # --- Set Dummy Environment Variables ---
@@ -144,8 +143,8 @@ def patch_get_plex_server(monkeypatch):
     """Fixture to patch the get_plex_server function with a dummy Plex server."""
     def _patch(movies=None, playlists=None):
         monkeypatch.setattr(
-            "plex_mcp.get_plex_server",
-            lambda: asyncio.sleep(0, result=DummyPlexServer(movies, playlists))
+            "plex_mcp.plex_mcp.get_plex_server",
+            lambda: dummy_get_plex_server(movies, playlists)
         )
     return _patch
 
@@ -191,10 +190,20 @@ async def test_search_movies_not_found(monkeypatch, patch_get_plex_server):
 @pytest.mark.asyncio
 async def test_search_movies_exception(monkeypatch):
     """Test that search_movies returns an error message when an exception occurs."""
+    # Mock the Plex library to raise an exception during search
     dummy_server = DummyPlexServer([DummyMovie(1, "Test Movie")])
     dummy_server.library.search = MagicMock(side_effect=Exception("Search error"))
-    monkeypatch.setattr("plex_mcp.get_plex_server", lambda: asyncio.sleep(0, result=dummy_server))
+
+    # Patch get_plex_server to return the dummy server
+    async def mock_get_plex_server():
+        return dummy_server
+
+    monkeypatch.setattr("plex_mcp.plex_mcp.get_plex_server", mock_get_plex_server)
+
+    # Call the function under test
     result = await search_movies(MovieSearchParams(title="Test"))
+
+    # Assert the error message is returned
     assert "ERROR: Could not search Plex" in result
     assert "Search error" in result
 

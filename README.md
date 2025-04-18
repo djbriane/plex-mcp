@@ -86,9 +86,9 @@ Add the following configuration to your Claude app:
             "command": "uv",
             "args": [
                 "--directory",
-                "FULL_PATH_TO_PROJECT/plex-mcp",
+                "FULL_PATH_TO_PROJECT",
                 "run",
-                "plex-mcp.py"
+                "plex_mcp/plex_mcp.py"
             ],
             "env": {
                 "PLEX_TOKEN": "YOUR_PLEX_TOKEN",
