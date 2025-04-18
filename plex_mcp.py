@@ -229,6 +229,7 @@ async def search_movies(
     watched:      Optional[bool] = None,
     min_duration: Optional[int]  = None,
     max_duration: Optional[int]  = None,
+    limit:        Optional[int]  = 5,
 ) -> str:
     """
     Search for movies in your Plex library using optional filters.
@@ -251,6 +252,10 @@ async def search_movies(
         A formatted string of up to 5 matching movies (with a count of any additional results),
         or an error message if the search fails or no movies are found.
     """
+
+    # Validate the limit parameter
+    limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
+
     params = MovieSearchParams(
         title, year, director, studio,
         genre, actor, rating, country,
@@ -265,16 +270,18 @@ async def search_movies(
     except Exception as e:
         logger.exception("search_movies failed connecting to Plex")
         return f"ERROR: Could not search Plex. {e}"
-
+    
     if not movies:
         return f"No movies found matching filters {filters!r}."
+    
+    logger.info("Found %d movies matching filters: %r", len(movies), filters)
 
     results: List[str] = []
-    for i, m in enumerate(movies[:5], start=1):
+    for i, m in enumerate(movies[:limit], start=1):
         results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")
 
-    if len(movies) > 5:
-        results.append(f"\n... and {len(movies)-5} more results.")
+    if len(movies) > limit:
+        results.append(f"\n... and {len(movies)-limit} more results.")
 
     return "\n---\n".join(results)
 
