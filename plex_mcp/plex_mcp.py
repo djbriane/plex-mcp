@@ -9,6 +9,7 @@ to handle non-blocking I/O and to provide informative error messages.
 
 # --- Import Statements ---
 from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, asdict
 import os
 import asyncio
 import logging
@@ -108,12 +109,75 @@ class PlexClient:
         """
         if self._server is None:
             try:
+                logger.info("Initializing PlexServer with URL: %s", self.server_url)
                 self._server = PlexServer(self.server_url, self.token)
                 logger.info("Successfully initialized PlexServer.")
+
+                # Validate the connection
+                self._server.library.sections()  # Attempt to fetch library sections
+                logger.info("Plex server connection validated.")
+            except Unauthorized as exc:
+                logger.error("Unauthorized: Invalid Plex token provided.")
+                raise Exception("Unauthorized: Invalid Plex token provided.") from exc
             except Exception as exc:
                 logger.exception("Error initializing Plex server: %s", exc)
                 raise Exception(f"Error initializing Plex server: {exc}")
         return self._server
+
+# --- Data Classes ---
+
+@dataclass
+class MovieSearchParams:
+    title:        Optional[str]  = None
+    year:         Optional[int]  = None
+    director:     Optional[str]  = None
+    studio:       Optional[str]  = None
+    genre:        Optional[str]  = None
+    actor:        Optional[str]  = None
+    rating:       Optional[str]  = None
+    country:      Optional[str]  = None
+    language:     Optional[str]  = None
+    watched:      Optional[bool] = None   # True=only watched, False=only unwatched
+    min_duration: Optional[int]  = None   # in minutes
+    max_duration: Optional[int]  = None   # in minutes
+
+    def to_filters(self) -> Dict[str, Any]:
+        FIELD_MAP = {
+            "title":        "title",
+            "year":         "year",
+            "director":     "director",
+            "studio":       "studio",
+            "genre":        "genre",
+            "actor":        "actor",
+            "rating":       "rating",
+            "country":      "country",
+            "language":     "language",
+            "watched":      "unwatched",
+            "min_duration": "minDuration",
+            "max_duration": "maxDuration",
+        }
+
+        filters: Dict[str, Any] = {"libtype": "movie"}
+
+        for field_name, plex_arg in FIELD_MAP.items():
+            value = getattr(self, field_name)
+            if value is None:
+                continue
+
+            if field_name == "watched":
+                # invert for Plex 'unwatched' flag
+                filters["unwatched"] = not value
+                continue
+
+            if field_name in ("min_duration", "max_duration"):
+                # convert minutes to milliseconds
+                filters[plex_arg] = value * 60_000
+                continue
+
+            filters[plex_arg] = value
+
+        return filters
+
 
 # --- Global Singleton and Access Functions ---
 
@@ -152,37 +216,74 @@ async def get_plex_server() -> PlexServer:
 # --- Tool Methods ---
 
 @mcp.tool()
-async def search_movies(query: str) -> str:
+async def search_movies(
+    title:        Optional[str]  = None,
+    year:         Optional[int]  = None,
+    director:     Optional[str]  = None,
+    studio:       Optional[str]  = None,
+    genre:        Optional[str]  = None,
+    actor:        Optional[str]  = None,
+    rating:       Optional[str]  = None,
+    country:      Optional[str]  = None,
+    language:     Optional[str]  = None,
+    watched:      Optional[bool] = None,
+    min_duration: Optional[int]  = None,
+    max_duration: Optional[int]  = None,
+    limit:        Optional[int]  = 5,
+) -> str:
     """
-    Search for movies in the Plex library.
+    Search for movies in your Plex library using optional filters.
     
     Parameters:
-        query: The search term to look up movies.
+        title: Optional title or substring to match.
+        year: Optional release year to filter by.
+        director: Optional director name to filter by.
+        studio: Optional studio name to filter by.
+        genre: Optional genre tag to filter by.
+        actor: Optional actor name to filter by.
+        rating: Optional rating (e.g., "PG-13") to filter by.
+        country: Optional country of origin to filter by.
+        language: Optional audio or subtitle language to filter by.
+        watched: Optional boolean; True returns only watched movies, False only unwatched.
+        min_duration: Optional minimum duration in minutes.
+        max_duration: Optional maximum duration in minutes.
         
     Returns:
-        A formatted string of search results or an error message.
+        A formatted string of up to 5 matching movies (with a count of any additional results),
+        or an error message if the search fails or no movies are found.
     """
-    if query is None:
-        return "ERROR: No query provided. Please provide a search term."
+
+    # Validate the limit parameter
+    limit = max(1, limit) if limit else 5  # Default to 5 if limit is 0 or negative
+
+    params = MovieSearchParams(
+        title, year, director, studio,
+        genre, actor, rating, country,
+        language, watched, min_duration, max_duration
+    )
+    filters = params.to_filters()
+    logger.info("Searching Plex with filters: %r", filters)
 
     try:
         plex = await get_plex_server()
+        movies = await asyncio.to_thread(plex.library.search, **filters)
     except Exception as e:
-        return f"ERROR: Could not connect to Plex server. {str(e)}"
+        logger.exception("search_movies failed connecting to Plex")
+        return f"ERROR: Could not search Plex. {e}"
+    
+    if not movies:
+        return f"No movies found matching filters {filters!r}."
+    
+    logger.info("Found %d movies matching filters: %r", len(movies), filters)
 
-    try:
-        movies = await asyncio.to_thread(plex.library.search, title=query, libtype="movie")
-        if not movies:
-            return f"No movies found matching '{query}'."
-        formatted_results = []
-        for i, movie in enumerate(movies[:5], 1):  # Limit to 5 results
-            formatted_results.append(f"Result #{i}:\nKey: {movie.ratingKey}\n{format_movie(movie)}")
-        if len(movies) > 5:
-            formatted_results.append(f"\n... and {len(movies) - 5} more results.")
-        return "\n---\n".join(formatted_results)
-    except Exception as e:
-        logger.exception("Failed to search movies with query '%s'", query)
-        return f"ERROR: Failed to search movies. {str(e)}"
+    results: List[str] = []
+    for i, m in enumerate(movies[:limit], start=1):
+        results.append(f"Result #{i}:\nKey: {m.ratingKey}\n{format_movie(m)}")
+
+    if len(movies) > limit:
+        results.append(f"\n... and {len(movies)-limit} more results.")
+
+    return "\n---\n".join(results)
 
 @mcp.tool()
 async def get_movie_details(movie_key: str) -> str:
@@ -202,23 +303,10 @@ async def get_movie_details(movie_key: str) -> str:
 
     try:
         key = int(movie_key)
-        sections = await asyncio.to_thread(plex.library.sections)
-        movie = None
-        for section in sections:
-            if section.type == 'movie':
-                try:
-                    items = await asyncio.to_thread(lambda s=section, k=key: s.search(filters={"ratingKey": k}))
-                    if items:
-                        movie = items[0]
-                        break
-                except Exception:
-                    continue
-        if not movie:
-            all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
-            for m in all_movies:
-                if m.ratingKey == key:
-                    movie = m
-                    break
+
+        all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
+        movie = next((m for m in all_movies if m.ratingKey == key), None)
+
         if not movie:
             return f"No movie found with key {movie_key}."
         return format_movie(movie)
@@ -407,36 +495,26 @@ async def add_to_playlist(playlist_key: str, movie_key: str) -> str:
     try:
         p_key = int(playlist_key)
         m_key = int(movie_key)
+
+        # Find the playlist
         all_playlists = await asyncio.to_thread(plex.playlists)
         playlist = next((p for p in all_playlists if p.ratingKey == p_key), None)
         if not playlist:
             return f"No playlist found with key {playlist_key}."
 
-        sections = await asyncio.to_thread(plex.library.sections)
-        movie_sections = [section for section in sections if section.type == 'movie']
-        movie = None
-        for section in movie_sections:
-            try:
-                items = await asyncio.to_thread(lambda s=section, k=m_key: s.search(filters={"ratingKey": k}))
-                if items:
-                    movie = items[0]
-                    break
-            except Exception:
-                continue
-        if not movie:
-            all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
-            for m in all_movies:
-                if m.ratingKey == m_key:
-                    movie = m
-                    break
-        if not movie:
+        # Perform a global search for the movie
+        movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie", ratingKey=m_key))
+        if not movies:
             return f"No movie found with key {movie_key}."
 
+        movie = movies[0]  # Since the search is scoped to the ratingKey, there should be at most one result
+
+        # Add the movie to the playlist
         await asyncio.to_thread(lambda p=playlist, m=movie: p.addItems([m]))
         logger.info("Added movie '%s' to playlist '%s'", movie.title, playlist.title)
         return f"Successfully added '{movie.title}' to playlist '{playlist.title}'."
-    except NotFound as e:
-        return f"ERROR: Item not found. {str(e)}"
+    except ValueError:
+        return "ERROR: Invalid playlist or movie key. Please provide valid numbers."
     except Exception as e:
         logger.exception("Failed to add movie to playlist")
         return f"ERROR: Failed to add movie to playlist. {str(e)}"
@@ -452,23 +530,22 @@ async def recent_movies(count: int = 5) -> str:
     Returns:
         A formatted string of recent movies or an error message.
     """
+    if count <= 0:
+        return "ERROR: Count must be a positive integer."
+    
     try:
         plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
     try:
-        movie_sections = [section for section in plex.library.sections() if section.type == 'movie']
-        if not movie_sections:
-            return "No movie libraries found in your Plex server."
-        all_recent = []
-        for section in movie_sections:
-            recent = await asyncio.to_thread(section.recentlyAdded, maxresults=count)
-            all_recent.extend(recent)
-        all_recent.sort(key=lambda x: x.addedAt, reverse=True)
+        # Perform a global search for recently added movies
+        all_recent = await asyncio.to_thread(lambda: plex.library.search(libtype="movie", sort="addedAt:desc"))
         recent_movies_list = all_recent[:count]
+
         if not recent_movies_list:
             return "No recent movies found in your Plex library."
+
         formatted_movies = []
         for i, movie in enumerate(recent_movies_list, 1):
             formatted_movies.append(
@@ -497,30 +574,20 @@ async def get_movie_genres(movie_key: str) -> str:
 
     try:
         key = int(movie_key)
-        sections = await asyncio.to_thread(plex.library.sections)
-        movie = None
-        for section in sections:
-            try:
-                items = await asyncio.to_thread(lambda s=section, k=key: s.search(filters={"ratingKey": k}))
-                if items:
-                    movie = items[0]
-                    break
-            except Exception:
-                continue
-        if not movie:
-            all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
-            for m in all_movies:
-                if m.ratingKey == key:
-                    movie = m
-                    break
+
+        # Perform a global search for the movie
+        all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
+        movie = next((m for m in all_movies if m.ratingKey == key), None)
         if not movie:
             return f"No movie found with key {movie_key}."
+
+        # Extract genres
         genres = [genre.tag for genre in movie.genres] if hasattr(movie, 'genres') else []
         if not genres:
             return f"No genres found for movie '{movie.title}'."
         return f"Genres for '{movie.title}':\n{', '.join(genres)}"
-    except NotFound:
-        return f"ERROR: Movie with key {movie_key} not found."
+    except ValueError:
+        return f"ERROR: Invalid movie key '{movie_key}'. Please provide a valid number."
     except Exception as e:
         logger.exception("Failed to fetch genres for movie with key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie genres. {str(e)}"

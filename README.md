@@ -4,6 +4,30 @@
 
 This is a Python-based MCP server that integrates with the Plex Media Server API to search for movies and manage playlists. It uses the PlexAPI library for seamless interaction with your Plex server.
 
+## Screenshots
+
+Here are some examples of how the Plex MCP server works:
+
+### 1. Find Movies in Plex Library by Director
+Search for movies in your Plex library by specifying a director's name. For example, searching for "Alfred Hitchcock" returns a list of his movies in your library.
+
+![Find movies by director](images/plex-mcp-search-movies-hitchcock.png)
+
+---
+
+### 2. Find Missing Movies for a Director
+Identify movies by a specific director that are missing from your Plex library. This helps you discover gaps in your collection.
+
+![Find missing movies](images/plex-mcp-missing-movies.png)
+
+---
+
+### 3. Create a Playlist in Your Plex Library
+Create a new playlist in your Plex library using the movies found in a search. This allows you to organize your library efficiently.
+
+![Create a playlist](images/plex-mcp-create-playlist.png)
+
+
 ## Setup
 
 ### Prerequisites
@@ -62,9 +86,9 @@ Add the following configuration to your Claude app:
             "command": "uv",
             "args": [
                 "--directory",
-                "FULL_PATH_TO_PROJECT/plex-mcp",
+                "FULL_PATH_TO_PROJECT",
                 "run",
-                "plex-mcp.py"
+                "plex_mcp/plex_mcp.py"
             ],
             "env": {
                 "PLEX_TOKEN": "YOUR_PLEX_TOKEN",
@@ -78,18 +102,17 @@ Add the following configuration to your Claude app:
 ## Available Commands
 
 The Plex MCP server exposes these commands:
-
-| Command | Description | OpenAPI Reference |
-|---------|-------------|-------------------|
-| `search_movies` | Search for movies in your library by title | `/library/sections/{sectionKey}/search` |
-| `get_movie_details` | Get detailed information about a specific movie | `/library/metadata/{ratingKey}` |
-| `get_movie_genres` | Get the genres for a specific movie | `/library/sections/{sectionKey}/genre` |
-| `list_playlists` | List all playlists on your Plex server | `/playlists` |
-| `get_playlist_items` | Get the items in a specific playlist | `/playlists/{playlistID}/items` |
-| `create_playlist` | Create a new playlist with specified movies | `/playlists` |
-| `delete_playlist` | Delete a playlist from your Plex server | `/playlists/{playlistID}` |
-| `add_to_playlist` | Add a movie to an existing playlist | `/playlists/{playlistID}/items` |
-| `recent_movies` | Get recently added movies from your library | `/library/recentlyAdded` |
+| Command              | Description                                                                 | OpenAPI Reference                     |
+|----------------------|-----------------------------------------------------------------------------|---------------------------------------|
+| `search_movies`      | Search for movies in your library by various filters (e.g., title, director, genre) with support for a `limit` parameter to control the number of results. | `/library/sections/{sectionKey}/search` |
+| `get_movie_details`  | Get detailed information about a specific movie.                           | `/library/metadata/{ratingKey}`       |
+| `get_movie_genres`   | Get the genres for a specific movie.                                       | `/library/sections/{sectionKey}/genre` |
+| `list_playlists`     | List all playlists on your Plex server.                                    | `/playlists`                          |
+| `get_playlist_items` | Get the items in a specific playlist.                                      | `/playlists/{playlistID}/items`       |
+| `create_playlist`    | Create a new playlist with specified movies.                              | `/playlists`                          |
+| `delete_playlist`    | Delete a playlist from your Plex server.                                  | `/playlists/{playlistID}`             |
+| `add_to_playlist`    | Add a movie to an existing playlist.                                       | `/playlists/{playlistID}/items`       |
+| `recent_movies`      | Get recently added movies from your library.                              | `/library/recentlyAdded`              |
 
 ## Running Tests
 
