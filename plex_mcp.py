@@ -109,8 +109,16 @@ class PlexClient:
         """
         if self._server is None:
             try:
+                logger.info("Initializing PlexServer with URL: %s", self.server_url)
                 self._server = PlexServer(self.server_url, self.token)
                 logger.info("Successfully initialized PlexServer.")
+
+                # Validate the connection
+                self._server.library.sections()  # Attempt to fetch library sections
+                logger.info("Plex server connection validated.")
+            except Unauthorized as exc:
+                logger.error("Unauthorized: Invalid Plex token provided.")
+                raise Exception("Unauthorized: Invalid Plex token provided.") from exc
             except Exception as exc:
                 logger.exception("Error initializing Plex server: %s", exc)
                 raise Exception(f"Error initializing Plex server: {exc}")
@@ -288,23 +296,10 @@ async def get_movie_details(movie_key: str) -> str:
 
     try:
         key = int(movie_key)
-        sections = await asyncio.to_thread(plex.library.sections)
-        movie = None
-        for section in sections:
-            if section.type == 'movie':
-                try:
-                    items = await asyncio.to_thread(lambda s=section, k=key: s.search(filters={"ratingKey": k}))
-                    if items:
-                        movie = items[0]
-                        break
-                except Exception:
-                    continue
-        if not movie:
-            all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
-            for m in all_movies:
-                if m.ratingKey == key:
-                    movie = m
-                    break
+
+        all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
+        movie = next((m for m in all_movies if m.ratingKey == key), None)
+
         if not movie:
             return f"No movie found with key {movie_key}."
         return format_movie(movie)
@@ -493,36 +488,26 @@ async def add_to_playlist(playlist_key: str, movie_key: str) -> str:
     try:
         p_key = int(playlist_key)
         m_key = int(movie_key)
+
+        # Find the playlist
         all_playlists = await asyncio.to_thread(plex.playlists)
         playlist = next((p for p in all_playlists if p.ratingKey == p_key), None)
         if not playlist:
             return f"No playlist found with key {playlist_key}."
 
-        sections = await asyncio.to_thread(plex.library.sections)
-        movie_sections = [section for section in sections if section.type == 'movie']
-        movie = None
-        for section in movie_sections:
-            try:
-                items = await asyncio.to_thread(lambda s=section, k=m_key: s.search(filters={"ratingKey": k}))
-                if items:
-                    movie = items[0]
-                    break
-            except Exception:
-                continue
-        if not movie:
-            all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
-            for m in all_movies:
-                if m.ratingKey == m_key:
-                    movie = m
-                    break
-        if not movie:
+        # Perform a global search for the movie
+        movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie", ratingKey=m_key))
+        if not movies:
             return f"No movie found with key {movie_key}."
 
+        movie = movies[0]  # Since the search is scoped to the ratingKey, there should be at most one result
+
+        # Add the movie to the playlist
         await asyncio.to_thread(lambda p=playlist, m=movie: p.addItems([m]))
         logger.info("Added movie '%s' to playlist '%s'", movie.title, playlist.title)
         return f"Successfully added '{movie.title}' to playlist '{playlist.title}'."
-    except NotFound as e:
-        return f"ERROR: Item not found. {str(e)}"
+    except ValueError:
+        return "ERROR: Invalid playlist or movie key. Please provide valid numbers."
     except Exception as e:
         logger.exception("Failed to add movie to playlist")
         return f"ERROR: Failed to add movie to playlist. {str(e)}"
@@ -538,23 +523,22 @@ async def recent_movies(count: int = 5) -> str:
     Returns:
         A formatted string of recent movies or an error message.
     """
+    if count <= 0:
+        return "ERROR: Count must be a positive integer."
+    
     try:
         plex = await get_plex_server()
     except Exception as e:
         return f"ERROR: Could not connect to Plex server. {str(e)}"
 
     try:
-        movie_sections = [section for section in plex.library.sections() if section.type == 'movie']
-        if not movie_sections:
-            return "No movie libraries found in your Plex server."
-        all_recent = []
-        for section in movie_sections:
-            recent = await asyncio.to_thread(section.recentlyAdded, maxresults=count)
-            all_recent.extend(recent)
-        all_recent.sort(key=lambda x: x.addedAt, reverse=True)
+        # Perform a global search for recently added movies
+        all_recent = await asyncio.to_thread(lambda: plex.library.search(libtype="movie", sort="addedAt:desc"))
         recent_movies_list = all_recent[:count]
+
         if not recent_movies_list:
             return "No recent movies found in your Plex library."
+
         formatted_movies = []
         for i, movie in enumerate(recent_movies_list, 1):
             formatted_movies.append(
@@ -583,30 +567,20 @@ async def get_movie_genres(movie_key: str) -> str:
 
     try:
         key = int(movie_key)
-        sections = await asyncio.to_thread(plex.library.sections)
-        movie = None
-        for section in sections:
-            try:
-                items = await asyncio.to_thread(lambda s=section, k=key: s.search(filters={"ratingKey": k}))
-                if items:
-                    movie = items[0]
-                    break
-            except Exception:
-                continue
-        if not movie:
-            all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
-            for m in all_movies:
-                if m.ratingKey == key:
-                    movie = m
-                    break
+
+        # Perform a global search for the movie
+        all_movies = await asyncio.to_thread(lambda: plex.library.search(libtype="movie"))
+        movie = next((m for m in all_movies if m.ratingKey == key), None)
         if not movie:
             return f"No movie found with key {movie_key}."
+
+        # Extract genres
         genres = [genre.tag for genre in movie.genres] if hasattr(movie, 'genres') else []
         if not genres:
             return f"No genres found for movie '{movie.title}'."
         return f"Genres for '{movie.title}':\n{', '.join(genres)}"
-    except NotFound:
-        return f"ERROR: Movie with key {movie_key} not found."
+    except ValueError:
+        return f"ERROR: Invalid movie key '{movie_key}'. Please provide a valid number."
     except Exception as e:
         logger.exception("Failed to fetch genres for movie with key '%s'", movie_key)
         return f"ERROR: Failed to fetch movie genres. {str(e)}"

@@ -48,7 +48,8 @@ class DummyMovie:
         directors=None,
         roles=None,
         genres=None,
-        type_="movie"
+        type_="movie",
+        addedAt=None,  # New parameter
     ):
         self.ratingKey = rating_key
         self.title = title
@@ -61,6 +62,7 @@ class DummyMovie:
         self.roles = [DummyTag(r) for r in (roles or [])]
         self.genres = [DummyTag(g) for g in (genres or [])]
         self.type = type_
+        self.addedAt = addedAt  # New attribute
 
 # Subclass for movies with genres.
 class DummyMovieWithGenres(DummyMovie):
@@ -351,17 +353,28 @@ async def test_delete_playlist_not_found(monkeypatch):
 async def test_add_to_playlist_success(monkeypatch):
     """Test that add_to_playlist returns a success message when a movie is added."""
     dummy_playlist = DummyPlaylist(4, "My Playlist", [])
+
     class DummyPlexServerWithPlaylist(DummyPlexServer):
         def playlists(self):
             return [dummy_playlist]
-    monkeypatch.setattr("plex_mcp.get_plex_server", 
-                        lambda: asyncio.sleep(0, result=DummyPlexServerWithPlaylist()))
-    # Override DummySection.search so that it returns a dummy movie with key 5.
-    monkeypatch.setattr(DummySection, "search", 
-                        lambda self, filters: [DummyMovie(5, "Added Movie")] if filters.get("ratingKey") == 5 else [])
+
+    # Patch the Plex server to include the playlist
+    monkeypatch.setattr(
+        "plex_mcp.get_plex_server",
+        lambda: asyncio.sleep(0, result=DummyPlexServerWithPlaylist())
+    )
+
+    # Patch DummyLibrary.search to return the dummy movie when libtype="movie" and ratingKey=5
+    def mock_search(self, **kwargs):
+        if kwargs.get("libtype") == "movie" and kwargs.get("ratingKey") == 5:
+            return [DummyMovie(5, "Added Movie")]
+        return []
+
+    monkeypatch.setattr(DummyLibrary, "search", mock_search)
+
     result = await add_to_playlist("4", "5")
     assert "Successfully added 'Added Movie' to playlist" in result
-
+    
 @pytest.mark.asyncio
 async def test_add_to_playlist_playlist_not_found(monkeypatch):
     """Test that add_to_playlist returns an error when the specified playlist is not found."""
@@ -378,14 +391,19 @@ async def test_add_to_playlist_playlist_not_found(monkeypatch):
 @pytest.mark.asyncio
 async def test_recent_movies_found(monkeypatch):
     """Test that recent_movies returns recent movie information when available."""
-    class DummySectionWithRecent(DummySection):
-        def recentlyAdded(self, maxresults):
-            m = DummyMovie(1, "Recent Movie")
-            m.addedAt = datetime(2022, 5, 1)
-            return [m]
-    monkeypatch.setattr(DummyLibrary, "sections", lambda self: [DummySectionWithRecent("movie")])
-    monkeypatch.setattr("plex_mcp.get_plex_server", 
-                        lambda: asyncio.sleep(0, result=DummyPlexServer()))
+    # Patch DummyLibrary.search to return a recent movie when sorted by addedAt
+    monkeypatch.setattr(
+        DummyLibrary,
+        "search",
+        lambda self, **kwargs: [DummyMovie(1, "Recent Movie", addedAt=datetime(2022, 5, 1))]
+        if kwargs.get("libtype") == "movie" and kwargs.get("sort") == "addedAt:desc" else []
+    )
+
+    monkeypatch.setattr(
+        "plex_mcp.get_plex_server",
+        lambda: asyncio.sleep(0, result=DummyPlexServer())
+    )
+
     result = await recent_movies(5)
     assert "Recent Movie" in result
 
